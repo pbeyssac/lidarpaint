@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# Colorization scripts for the Lidar scans of France distributed by IGN (https://ign.fr/)
+#
+# Pierre Beyssac -- 2022 -- BSD licene
+#
+
+UNZIP='/usr/local/bin/7zz'
+WGET='/usr/local/bin/wget'
+RM='rm'
+PAINTFILE='./paintfile.py'
+
+for url in $*; do
+  ${WGET} "$url"
+  f=`basename $url`
+  dirname=`basename $url .7z`
+  ${UNZIP} x "$f" && ${RM} -f "$f"
+  ${PAINTFILE} "$dirname"/* && ${RM} -rf "$dirname"
+done
