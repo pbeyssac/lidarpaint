@@ -173,10 +173,8 @@ class LazColorize(object):
     txstart, tystart = int(tx1), int(ty1)
     txend, tyend = int(math.ceil(tx2)), int(math.ceil(ty2))
 
-    cropcode = False
-    if not cropcode:
-      tx1_orig, ty1_orig = self.tile_to_geo(txstart, tystart)
-      tx2_orig, ty2_orig = self.tile_to_geo(txend, tyend)
+    tx1_orig, ty1_orig = self.tile_to_geo(txstart, tystart)
+    tx2_orig, ty2_orig = self.tile_to_geo(txend, tyend)
 
     #
     # Compute the Lambert93 bounds of the final image (not used except for display)
@@ -191,43 +189,19 @@ class LazColorize(object):
       % (txend-1, tyend-1, lambert_bottomright_x, lambert_bottomright_y,
       self.osm_marker(txend, tyend)))
 
-    if cropcode:
-      size_x = int((tx2-tx1)*self.tile_size + .5)
-      size_y = int((ty2-ty1)*self.tile_size + .5)
-    else:
-      size_x = (txend-txstart)*self.tile_size
-      size_y = (tyend-tystart)*self.tile_size
+    size_x = (txend-txstart)*self.tile_size
+    size_y = (tyend-tystart)*self.tile_size
     print("Creating image size %dx%d" % (size_x, size_y))
     full_image = Image.new('RGB', (size_x, size_y), (0,250,0))
-
-    if cropcode:
-      crop_left = math.floor((tx1-txstart)*self.tile_size)
-      crop_top = math.floor((ty1-tystart)*self.tile_size)
-      crop_right = self.tile_size - math.ceil((tx2+txstart)*self.tile_size)
-      crop_bottom = self.tile_size - math.ceil((ty2-tystart)*self.tile_size)
-      crop_right, crop_bottom = 0, 0
 
     ypix = 0
     for y in range(tystart, tyend):
       xpix = 0
       for x in range(txstart, txend):
         i = self.fetch_tile(x, y)
-
-        if cropcode:
-          left = crop_left if x == txstart else 0
-          right = (self.tile_size-crop_right) if x == txend-1 else self.tile_size
-          top = crop_top if y == tystart else 0
-          bottom = (self.tile_size-crop_bottom) if y == tyend-1 else self.tile_size
-          i = i.crop((left,top,right,bottom))
-        else:
-          left = 0
-          right = self.tile_size
-          top = 0
-          bottom = self.tile_size
-
         full_image.paste(i, (xpix, ypix))
-        xpix += self.tile_size - left
-      ypix += self.tile_size - top
+        xpix += self.tile_size
+      ypix += self.tile_size
 
     #
     # The following could probably be done in fewer steps using
