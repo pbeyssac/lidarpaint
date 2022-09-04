@@ -22,7 +22,7 @@ Il projette enfin l'image 2D sur l'image Lidar 3D, produisant le fichier final `
 
 ### Configuration initiale
 
-La seule configuration indispensable est d'adapter les variables suivantes de `paintfile.py` pour les chemines des logiciels externes :
+La seule configuration indispensable est d'adapter les variables suivantes de `paintfile.py` pour les chemins des logiciels externes :
 
 * `pdal_path`
 * `gdalwarp_path`

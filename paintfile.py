@@ -3,7 +3,7 @@
 #
 # Colorization scripts for the Lidar scans of France distributed by IGN (https://ign.fr/)
 #
-# Pierre Beyssac -- 2022 -- BSD licene
+# Pierre Beyssac -- 2022 -- BSD license
 #
 
 
