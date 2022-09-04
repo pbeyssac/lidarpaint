@@ -20,6 +20,15 @@ Il les assemble ensuite en une image de 1000 x 1000 mètres + marges en coordonn
 
 Il projette enfin l'image 2D sur l'image Lidar 3D, produisant le fichier final `.laz` utilisable.
 
+### Configuration initiale
+
+La seule configuration indispensable est d'adapter les variables suivantes de `paintfile.py` pour les chemines des logiciels externes :
+
+* `pdal_path`
+* `gdalwarp_path`
+* `gdal_translate_path`
+
+
 ### Exemple d'utilisation
 
 Pour découvrir Monistrol d'Allier en 3D :
