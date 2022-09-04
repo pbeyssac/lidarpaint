@@ -31,33 +31,88 @@ gdal_translate_path = '/usr/local/bin/gdal_translate'
 keeptmpfiles = False
 
 #
-# This can probably be lowered a bit to use lower resolution pictures
-#
-default_zoom = 19
-
-#
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
 #
 re_ign_file = re.compile('.*_\d\d\d\d_(\d\d\d\d)_(\d\d\d\d)_LA93_')
-
-#
-# Modify this at your own risk
-#
-default_key = 'ortho'
 
 #
 # Random colors for test tiles
 #
 colors = [(250,0,0),(0,250,0),(0,0,250),(0,250,250),(250,0,250),(250,250,0),(250,250,250),(0,0,0)]
 
+#
+# IGN WMTS API documentation:
+# https://geoservices.ign.fr/documentation/services/api-et-services-ogc/images-tuilees-wmts-ogc
+#
+# Lambert93:
+# https://geoservices.ign.fr/services-web-experts-lambert-93
+#
+#
+#
+
+configs = {
+  #
+  # WebMercator tiles
+  #
+  'PM': {
+    'identifier': 'PM',
+
+    # margin for reprojection. "70 meters ought to be enough for anybody"
+    'margin': 70,
+    'zoomconfig': {
+      19: {
+        'x0': -20037508.3427892476320267,
+        'y0': 20037508.3427892476320267,
+        'scale_denominator': 1066.3647919248918304
+      }
+    },
+    'zoom': 19,
+    'tile_size': 256,
+
+    # Change at your own risk -- untested
+    # ORTHOIMAGERY.ORTHOPHOTOS.BDORTHO
+    # HR.ORTHOIMAGERY.ORTHOPHOTOS
+    # ORTHOIMAGERY.ORTHOPHOTOS
+    'layer': 'ORTHOIMAGERY.ORTHOPHOTOS',
+
+    'ortho_ref': 'EPSG:3857', # Web Mercator
+    'key': 'ortho',
+    'format': 'jpeg',
+    'url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=normal&TILEMATRIXSET=%(identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=image/%(format)s'
+  },
+
+  #
+  # Lambert 93 tiles, avoiding a reprojection
+  #
+  'LAMB93': {
+    'identifier': 'LAMB93',
+    'margin': 0,
+    'zoomconfig': {
+      18: {
+        'x0': 0.0000,
+        'y0': 12000000.0000,
+        'scale_denominator': 1424.0829103571428959
+      }
+    },
+    'zoom': 18,
+    'tile_size': 256,
+
+    'layer': 'HR.ORTHOIMAGERY.ORTHOPHOTOS.L93',
+
+    'ortho_ref': 'EPSG:2154',
+    'key': 'lambert93',
+    'format': 'png',
+    'url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=normal&TILEMATRIXSET=%(identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=image/%(format)s'
+  }
+}
+
 
 class LazColorize(object):
   """Colorize IGN .laz files using IGN aerial imagery from their WMTS API.
-  IGN WMTS API documentation:
-  https://geoservices.ign.fr/documentation/services/api-et-services-ogc/images-tuilees-wmts-ogc
   """
 
-  def __init__(self, zoom=default_zoom, key=default_key):
+  def __init__(self):
+    self.config = configs['PM']
 
     if not os.path.exists(cache_dir):
       print("Creating cache directory %s for API tiles" % cache_dir)
@@ -65,39 +120,27 @@ class LazColorize(object):
 
     self.ni = 0
     self.testmode = False
-    self.identifier = 'PM'
+    self.identifier = self.config['identifier']
     self.session = requests.Session()
 
-    self.layer = 'ORTHOIMAGERY.ORTHOPHOTOS'
-    # Change at your own risk -- untested
-    # 'ORTHOIMAGERY.ORTHOPHOTOS.BDORTHO'
-    # 'HR.ORTHOIMAGERY.ORTHOPHOTOS'
-    # 'ORTHOIMAGERY.ORTHOPHOTOS'
-
-    self.matrixset = self.identifier
-
-    # EPSG:3857 is Web Mercator
-    self.ortho_ref = 'EPSG:3857'
+    self.layer = self.config['layer']
+    self.ortho_ref = self.config['ortho_ref']
 
     self.trans_lamb93_to_tile = Transformer.from_crs("EPSG:2154", self.ortho_ref)
     self.trans_lamb93_from_tile = Transformer.from_crs(self.ortho_ref, "EPSG:2154")
     self.trans_wgs84_from_tile = Transformer.from_crs(self.ortho_ref, "WGS84")
-    self.zoom = zoom
-    self.key = key
+    self.zoom = self.config['zoom']
+    self.key = self.config['key']
 
-    #
-    # The following parameters should ideally be gotten from
-    # https://wxs.ign.fr/ortho/geoportail/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities
-    #
-    # I've tried to make it somewhat generic computed from the zoom
-    # level instead of using the table from IGN.
-    #
-    self.x0 = -20037508.3427892476320267
-    self.y0 = 20037508.3427892476320267
-    scale_denominator = 559082264.0287178958533332/(2**self.zoom)
+    zoomconfig = self.config['zoomconfig'][self.zoom]
+    self.x0 = zoomconfig['x0']
+    self.y0 = zoomconfig['y0']
+    scale_denominator = zoomconfig['scale_denominator']
+
+    # 0.28 millimeter per pixel = hardcoded value from the WMTS standard
     self.mpp = 0.00028*scale_denominator
 
-    self.tile_size = 256
+    self.tile_size = self.config['tile_size']
     self.tile_m = self.tile_size*self.mpp
     print("Zoom level %d, %.6f meters per pixel, %.2f pixels per kilometer, %d pixels per tile"
       % (self.zoom, self.mpp, 1000/self.mpp, self.tile_size))
@@ -112,7 +155,7 @@ class LazColorize(object):
     return tile_x, tile_y, ax, ay
 
   def tile_to_geo(self, tile_x, tile_y):
-    """Convert API tile coordinates to Web Mercator coordinates at the current zoom level."""
+    """Convert API tile coordinates at the current zoom level to projection coordinates."""
     bx = tile_x*self.tile_m
     by = tile_y*self.tile_m
     ax = bx + self.x0
@@ -149,10 +192,8 @@ class LazColorize(object):
     # Compute the Lambert93 coordinates of the northwest corner of the Lidar zone.
     # Add margin on every border to account for coordinate conversion with gdalwarp.
     #
-    # "70 meters ought to be enough for anybody"
-    #
 
-    margin = 70
+    margin = self.config['margin']
     lambx1 = lambx_km*1000 - margin
     lamby1 = lamby_km*1000 + margin
 
@@ -209,7 +250,7 @@ class LazColorize(object):
     #
 
     #
-    # Write the reassembled (1000 + 2*margin) m² aerial picture as a PNG
+    # Write the reassembled (1000 + 2*margin)² m² aerial picture as a PNG
     #
     outprefix = "img-%d-%04d-%04d" % (self.zoom, lambx_km, lamby_km)
     full_image.save(outprefix + ".png")
@@ -229,17 +270,19 @@ class LazColorize(object):
     if not keeptmpfiles:
       os.unlink(outprefix+'.png')
 
-    #
-    # Project to a new EPSG:2154 (Lambert93) georeferenced TIFF
-    #
-    subprocess.run([
-      gdalwarp_path,
-      "-t_srs", "EPSG:2154",
-      "%s.%s.tiff" % (outprefix, self.ortho_ref),
-      "%s.tiff" % outprefix])
+    if self.ortho_ref != 'EPSG:2154':
+      #
+      # The tiles obtained from the API were not Lambert93.
+      # Project to a new Lambert93 georeferenced TIFF.
+      #
+      subprocess.run([
+        gdalwarp_path,
+        "-t_srs", "EPSG:2154",
+        "%s.%s.tiff" % (outprefix, self.ortho_ref),
+        "%s.EPSG:2154.tiff" % outprefix])
 
-    if not keeptmpfiles:
-      os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref))
+      if not keeptmpfiles:
+        os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref))
 
     #
     # Run PDAL for the final colorization step using the georeferenced image.
@@ -253,7 +296,7 @@ class LazColorize(object):
         self.infile,
         {
             "type": "filters.colorization",
-            "raster": outprefix+'.tiff'
+            "raster": outprefix+'.EPSG:2154.tiff'
         },
         {
             "type": "writers.las",
@@ -270,7 +313,7 @@ class LazColorize(object):
 
     subprocess.run([pdal_path, "pipeline", "pdal_tmp.json"])
     if not keeptmpfiles:
-      os.unlink(outprefix+'.tiff')
+      os.unlink(outprefix+'.EPSG:2154.tiff')
 
   def fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
@@ -280,7 +323,8 @@ class LazColorize(object):
 
     data = None
 
-    orig_name = os.path.join(cache_dir, 'orig-%d-%d-%d.jpg' % (self.zoom, tile_x, tile_y))
+    orig_name = os.path.join(cache_dir, '%s-%s-%d-%d-%d.%s'
+      % (self.identifier, self.layer, self.zoom, tile_x, tile_y, self.config['format']))
 
     #
     # Try the cache first
@@ -292,13 +336,17 @@ class LazColorize(object):
       #
       # Not found, fetch from the API and store
       #
-      url = ('https://wxs.ign.fr/%(key)s/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=normal&TILEMATRIXSET=%(identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=image/jpeg' %
-         {'zoom': self.zoom, 'x': int(tile_x), 'y': int(tile_y), 'key': self.key, 'identifier': self.identifier, 'layer': self.layer})
+      url = (self.config['url'] %
+         {'zoom': self.zoom, 'x': int(tile_x), 'y': int(tile_y), 'key': self.key, 'identifier': self.identifier, 'layer': self.layer,
+          'format': self.config['format']})
       r = self.session.get(url)
       if r.status_code == 200:
         data = r.content
         with open(orig_name, 'wb+') as o:
           o.write(data)
+      else:
+        print("HTTP error %d on tile %s %s %d, %d" % (r.status_code, self.identifier, self.layer, tile_x, tile_y))
+        print('URL:', url)
 
       # Give the API server some slack
       time.sleep(.1)
