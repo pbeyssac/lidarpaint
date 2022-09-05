@@ -89,6 +89,7 @@ class LazColorize(object):
     matrixconfig = self.matrixset_dict[self.layer_config['matrixset']]
     zoomconfig = matrixconfig['zooms'][str(self.zoom)]
     self.ortho_ref = matrixconfig['crs']
+    self.ortho_ref_file = matrixconfig['crs'].replace(':', '_')
 
     self.ni = 0
     self.testmode = False
@@ -304,7 +305,7 @@ class LazColorize(object):
       "-a_srs", self.ortho_ref,
       "-a_ullr", "%f" % tx1_orig, "%f" % ty1_orig, "%f" % tx2_orig, "%f" % ty2_orig,
       "%s.png" % outprefix,
-      "%s.%s.tiff" % (outprefix, self.ortho_ref)])
+      "%s.%s.tiff" % (outprefix, self.ortho_ref_file)])
 
     if not keeptmpfiles:
       os.unlink(outprefix+'.png')
@@ -317,11 +318,11 @@ class LazColorize(object):
       subprocess.run([
         self.main_config['gdalwarp_path'],
         "-t_srs", "EPSG:2154",
-        "%s.%s.tiff" % (outprefix, self.ortho_ref),
-        "%s.EPSG:2154.tiff" % outprefix])
+        "%s.%s.tiff" % (outprefix, self.ortho_ref_file),
+        "%s.EPSG_2154.tiff" % outprefix])
 
       if not keeptmpfiles:
-        os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref))
+        os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref_file))
 
     #
     # Run PDAL for the final colorization step using the georeferenced image.
@@ -335,7 +336,7 @@ class LazColorize(object):
         self.infile,
         {
             "type": "filters.colorization",
-            "raster": outprefix+'.EPSG:2154.tiff'
+            "raster": outprefix+'.EPSG_2154.tiff'
         },
         {
             "type": "writers.las",
@@ -352,7 +353,7 @@ class LazColorize(object):
 
     subprocess.run([self.main_config['pdal_path'], "pipeline", "pdal_tmp.json"])
     if not keeptmpfiles:
-      os.unlink(outprefix+'.EPSG:2154.tiff')
+      os.unlink(outprefix+'.EPSG_2154.tiff')
 
   def fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
