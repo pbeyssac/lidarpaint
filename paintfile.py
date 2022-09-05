@@ -318,6 +318,7 @@ class LazColorize(object):
       subprocess.run([
         self.main_config['gdalwarp_path'],
         "-t_srs", "EPSG:2154",
+        "-r", "bilinear",
         "%s.%s.tiff" % (outprefix, self.ortho_ref_file),
         "%s.EPSG_2154.tiff" % outprefix])
 
