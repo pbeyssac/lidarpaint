@@ -28,7 +28,7 @@ keeptmpfiles = False
 #
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
 #
-re_ign_file = re.compile('.*_\d\d\d\d_(\d\d\d\d)_(\d\d\d\d)_LA93_')
+re_ign_file = re.compile('.*_(\d\d\d\d)_(\d\d\d\d)_LA93')
 
 #
 # Random colors for test tiles
@@ -342,7 +342,7 @@ class LazColorize(object):
             "compression": "true",
             "minor_version": "2",
             "dataformat_id": "3",
-            "filename": 'color-%04d_%04d.laz' % (lambx_km, lamby_km)
+            "filename": 'color_%04d_%04d_LA93.laz' % (lambx_km, lamby_km)
         }
       ]
     }
