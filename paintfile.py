@@ -46,66 +46,20 @@ colors = [(250,0,0),(0,250,0),(0,0,250),(0,250,250),(250,0,250),(250,250,0),(250
 wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=normal&TILEMATRIXSET=%(matrixset_identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=%(format)s'
 wmts_GetCapabilities_fmt = 'SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities'
 
-# Available configs
-
-config = {
-  'default_layer': 'PM',
-  'cache_dir': '.cache',
-  'pdal_path': '/usr/local/bin/pdal',
-  'gdalwarp_path': '/usr/local/bin/gdalwarp',
-  'gdal_translate_path': '/usr/local/bin/gdal_translate',
-  'layers': {
-    'PM': {
-      'description': "Basic IGN WebMercator tiles. Margin necessary for reprojection.",
-      'comment': '"70 meters ought to be enough for anybody"',
-      'margin': 70,
-      'zoom': '19',
-      'layer': 'ORTHOIMAGERY.ORTHOPHOTOS',
-      'key': 'ortho',
-      'endpoint_url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?'
-    },
-    'LAMB93': {
-      'description': 'IGN Lambert 93 tiles, avoiding a reprojection, but lower resolution',
-      'margin': 0,
-      'zoom': '18',
-      'layer': 'HR.ORTHOIMAGERY.ORTHOPHOTOS.L93',
-      'key': 'lambert93',
-      'endpoint_url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?'
-    },
-    'CADASTRE' : {
-      'description': 'French cadastral layer, for fun',
-      'margin': 0,
-      'zoom': '17',
-      'layer': 'CADASTRALPARCELS.PARCELS.L93',
-      'key': 'lambert93',
-      'endpoint_url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?'
-    },
-    'DRONES' : {
-      'description': 'Drone flight restrictions',
-      'margin': 0,
-      'key': 'transports',
-      'zoom': '14',
-      'layer': 'TRANSPORTS.DRONES.RESTRICTIONS',
-      'key': 'lambert93',
-      'endpoint_url': 'https://wxs.ign.fr/%(key)s/geoportail/wmts?'
-    }
-  }
-}
-
 
 class LazColorize(object):
   """Colorize IGN .laz files using IGN aerial imagery from their WMTS API.
   """
 
-  def __init__(self, config=config):
-    self.config = config
-    if not os.path.exists(self.config['cache_dir']):
-      print("Creating cache directory %s for API tiles" % self.config['cache_dir'])
-      os.mkdir(self.config['cache_dir'])
+  def __init__(self, config):
+    self.main_config = config
+    if not os.path.exists(self.main_config['cache_dir']):
+      print("Creating cache directory %s for API tiles" % self.main_config['cache_dir'])
+      os.mkdir(self.main_config['cache_dir'])
 
     self.session = requests.Session()
 
-    self.config_identifier = self.config['default_layer']
+    self.config_identifier = self.main_config['default_layer']
 
     # Select by our config id
     self.config = config['layers'][self.config_identifier]
@@ -343,7 +297,7 @@ class LazColorize(object):
     # Convert to a georeferenced TIFF
     #
     subprocess.run([
-      self.config['gdal_translate_path'],
+      self.main_config['gdal_translate_path'],
       "-a_nodata", "0",
       "-of", "GTiff",
       "-a_srs", self.ortho_ref,
@@ -360,7 +314,7 @@ class LazColorize(object):
       # Project to a new Lambert93 georeferenced TIFF.
       #
       subprocess.run([
-        self.config['gdalwarp_path'],
+        self.main_config['gdalwarp_path'],
         "-t_srs", "EPSG:2154",
         "%s.%s.tiff" % (outprefix, self.ortho_ref),
         "%s.EPSG:2154.tiff" % outprefix])
@@ -395,7 +349,7 @@ class LazColorize(object):
     with open('pdal_tmp.json', 'w+') as pdalf:
       json.dump(pdal_config, pdalf)
 
-    subprocess.run([self.config['pdal_path'], "pipeline", "pdal_tmp.json"])
+    subprocess.run([self.main_config['pdal_path'], "pipeline", "pdal_tmp.json"])
     if not keeptmpfiles:
       os.unlink(outprefix+'.EPSG:2154.tiff')
 
@@ -444,7 +398,10 @@ class LazColorize(object):
     return i
 
 
-c = LazColorize()
+with open('lidarpaint-config.json', 'r') as cf:
+  config = json.load(cf)
+
+c = LazColorize(config)
 
 for arg in sys.argv[1:]:
   m = re_ign_file.match(arg)

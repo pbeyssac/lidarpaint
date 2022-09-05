@@ -1,0 +1,42 @@
+{
+    "default_layer": "PM",
+    "cache_dir": ".cache",
+    "pdal_path": "/usr/local/bin/pdal",
+    "gdalwarp_path": "/usr/local/bin/gdalwarp",
+    "gdal_translate_path": "/usr/local/bin/gdal_translate",
+    "layers": {
+        "PM": {
+            "description": "Basic IGN WebMercator tiles. Margin necessary for reprojection.",
+            "comment": "\"70 meters ought to be enough for anybody\"",
+            "margin": 70,
+            "zoom": "19",
+            "layer": "ORTHOIMAGERY.ORTHOPHOTOS",
+            "key": "ortho",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
+        },
+        "LAMB93": {
+            "description": "IGN Lambert 93 tiles, avoiding a reprojection, but lower resolution",
+            "margin": 0,
+            "zoom": "18",
+            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS.L93",
+            "key": "lambert93",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
+        },
+        "CADASTRE": {
+            "description": "French cadastral layer, for fun",
+            "margin": 0,
+            "zoom": "17",
+            "layer": "CADASTRALPARCELS.PARCELS.L93",
+            "key": "lambert93",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
+        },
+        "DRONES": {
+            "description": "Drone flight restrictions",
+            "margin": 0,
+            "zoom": "14",
+            "layer": "TRANSPORTS.DRONES.RESTRICTIONS",
+            "key": "lambert93",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
+        }
+    }
+}
