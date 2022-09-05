@@ -364,6 +364,16 @@ class LazColorize(object):
 
     data = None
 
+    #
+    # Temporary compatibility with old cache.
+    #
+    old_name = os.path.join(config['cache_dir'], 'orig-%s-%d-%d.jpg'
+      % (self.zoom, tile_x, tile_y))
+    if self.config_identifier == 'PM' and self.layer == 'ORTHOIMAGERY.ORTHOPHOTOS' and os.path.exists(old_name):
+      os.rename(old_name,
+                os.path.join(config['cache_dir'], '%s-%s-%d-%d.jpeg'
+                  % ((self.layer, self.zoom, tile_x, tile_y))))
+
     orig_name = os.path.join(config['cache_dir'], '%s-%s-%d-%d.%s'
       % (self.layer, self.zoom, tile_x, tile_y, self.format_ext))
 
