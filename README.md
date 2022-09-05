@@ -5,7 +5,7 @@ LiDarPaint
 
 Ces scripts colorisent automatiquement des dalles Lidar HD IGN quelconques à partir des données d'orthophotographie distribuées également par l'IGN.
 
-Le script principal `painturl` récupère les fichiers IGN .laz directement à partir de leur URL et s'occupe de tous les traitements, produisant des fichiers color*.laz directement chargeables dans le logiciel displaz.
+Le script principal `painturl` récupère les fichiers IGN `.laz` directement à partir de leur URL et s'occupe de tous les traitements, produisant des fichiers color*.laz directement chargeables dans le logiciel displaz.
 
 L'autre script `paintfile.py` travaille avec des fichiers .laz IGN déjà téléchargés et extraits qu'on lui fournit.
 
@@ -16,18 +16,25 @@ https://geoservices.ign.fr/lidarhd#telechargement
 
 Le script récupère les données 3D IGN, identifie la position géographique et va alors chercher les dalles 256x256 pixels d'orthophotographie aérienne correspondantes.
 
-Il les assemble ensuite en une image de 1000 x 1000 mètres + marges en coordonnées d'origine de l'API IGN (Web Mercator), puis la convertit en coordonnées Lambert93 utilisées par les dalles Lidar.
+Il les assemble ensuite en une image de 1000 x 1000 mètres + marges en coordonnées de l'API IGN (WebMercator ou Lambert93), puis la convertit si nécessaire en coordonnées Lambert93 utilisées par les dalles Lidar.
 
 Il projette enfin l'image 2D sur l'image Lidar 3D, produisant le fichier final `.laz` utilisable.
 
 ### Configuration initiale
 
-La seule configuration indispensable est d'adapter les variables suivantes de `paintfile.py` pour les chemins des logiciels externes :
+La configuration se réalise maintenant par le fichier `lidarpaint.json`.
+
+La seule configuration indispensable est d'adapter les entrées suivantes de `lidarpaint.json` pour les chemins des logiciels externes :
 
 * `pdal_path`
 * `gdalwarp_path`
 * `gdal_translate_path`
 
+Vous pouvez aussi modifier `default_layer` pour essayer d'autres jeux d'imagerie proposés par l'IGN, voire d'autres serveurs WMTS.
+
+Quelques exemples sont fournis.
+
+La configuration par défaut ('PM' = images en projection WebMercator, niveau de zoom 19) semble donner de meilleurs résultats que les images en projection Lambert93 native: meilleure résolution et images plus compactes.
 
 ### Exemple d'utilisation
 
