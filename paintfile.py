@@ -23,8 +23,6 @@ from pyproj import Transformer
 import requests
 
 
-keeptmpfiles = False
-
 #
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
 #
@@ -307,7 +305,7 @@ class LazColorize(object):
       "%s.png" % outprefix,
       "%s.%s.tiff" % (outprefix, self.ortho_ref_file)])
 
-    if not keeptmpfiles:
+    if not self.main_config.get('keeptmpfiles', False):
       os.unlink(outprefix+'.png')
 
     if self.ortho_ref != 'EPSG:2154':
@@ -322,7 +320,7 @@ class LazColorize(object):
         "%s.%s.tiff" % (outprefix, self.ortho_ref_file),
         "%s.EPSG_2154.tiff" % outprefix])
 
-      if not keeptmpfiles:
+      if not self.main_config.get('keeptmpfiles', False):
         os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref_file))
 
     #
@@ -353,8 +351,8 @@ class LazColorize(object):
       json.dump(pdal_config, pdalf)
 
     subprocess.run([self.main_config['pdal_path'], "pipeline", "pdal_tmp.json"])
-    if not keeptmpfiles:
-      os.unlink(outprefix+'.EPSG_2154.tiff')
+    if not self.main_config.get('keeptmpfiles', False):
+      os.unlink('%s.%s.tiff' % (outprefix, self.target_ref_file))
 
   def fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""

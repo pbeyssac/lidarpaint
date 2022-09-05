@@ -4,6 +4,7 @@
     "pdal_path": "/usr/local/bin/pdal",
     "gdalwarp_path": "/usr/local/bin/gdalwarp",
     "gdal_translate_path": "/usr/local/bin/gdal_translate",
+    "keeptmpfiles": false,
     "layers": {
         "PM": {
             "description": "Basic IGN WebMercator tiles. Margin necessary for reprojection.",
