@@ -259,7 +259,7 @@ class LazColorize(object):
   def lamb93_from_tile(self, tile_x, tile_y):
     """Convert API tile coordinates at the current zoom level to Lambert93."""
     return self.transform_from_tile(tile_x, tile_y, self.trans_lamb93_from_tile)
- 
+
   def wgs84_from_tile(self, tile_x, tile_y):
     """Convert API tile coordinates at the current zoom level to WGS84."""
     return self.transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_tile)
