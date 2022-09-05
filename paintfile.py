@@ -43,7 +43,7 @@ colors = [(250,0,0),(0,250,0),(0,0,250),(0,250,250),(250,0,250),(250,250,0),(250
 # https://geoservices.ign.fr/services-web-experts-lambert-93
 #
 
-wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=normal&TILEMATRIXSET=%(matrixset_identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=%(format)s'
+wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=%(style)s&TILEMATRIXSET=%(matrixset_identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=%(format)s'
 wmts_GetCapabilities_fmt = 'SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities'
 
 
@@ -156,6 +156,7 @@ class LazColorize(object):
       layer_dict[layer_identifier] = {
         'id': layer_identifier,
         'format': layer.find('./Format', xmlns).text,
+        'style': layer.find('./Style/ows:Identifier', xmlns).text,
         'matrixset': layer.find('./TileMatrixSetLink/TileMatrixSet', xmlns).text
       }
     self.layer_dict = layer_dict
@@ -376,7 +377,8 @@ class LazColorize(object):
       #
       url = (self.config['endpoint_url'] % {'key': self.key}
            + wmts_GetTile_fmt % {'zoom': self.zoom, 'x': int(tile_x), 'y': int(tile_y),
-              'matrixset_identifier': self.matrixset_identifier, 'layer': self.layer,
+              'matrixset_identifier': self.matrixset_identifier,
+              'layer': self.layer, 'style': self.layer_config['style'],
               'format': self.format})
       r = self.session.get(url)
       if r.status_code == 200:
