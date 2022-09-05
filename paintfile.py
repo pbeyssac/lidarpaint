@@ -364,8 +364,8 @@ class LazColorize(object):
 
     data = None
 
-    orig_name = os.path.join(config['cache_dir'], '%s-%s-%s-%d-%d.%s'
-      % (self.config_identifier, self.layer, self.zoom, tile_x, tile_y, self.format_ext))
+    orig_name = os.path.join(config['cache_dir'], '%s-%s-%d-%d.%s'
+      % (self.layer, self.zoom, tile_x, tile_y, self.format_ext))
 
     #
     # Try the cache first
