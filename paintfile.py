@@ -347,6 +347,7 @@ class LazColorize(object):
             "minor_version": "2",
             "dataformat_id": "3",
             "filename": 'color_%04d_%04d_LA93.laz.tmp' % (lambx_km, lamby_km),
+            "software_id": "lidarpaint+pdal"
         }
       ]
     }
