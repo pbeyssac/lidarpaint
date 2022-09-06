@@ -55,6 +55,10 @@ class LazColorize(object):
       print("Creating cache directory %s for API tiles" % self.main_config['cache_dir'])
       os.mkdir(self.main_config['cache_dir'])
 
+    # Target is currently set to Lambert93 = EPSG:2154
+    self.target_ref = 'EPSG:2154'
+    self.target_ref_file = self.target_ref.replace(':', '_')
+
     self.session = requests.Session()
 
     self.config_identifier = self.main_config['default_layer']
@@ -92,8 +96,8 @@ class LazColorize(object):
     self.ni = 0
     self.testmode = False
 
-    self.trans_lamb93_to_tile = Transformer.from_crs("EPSG:2154", self.ortho_ref)
-    self.trans_lamb93_from_tile = Transformer.from_crs(self.ortho_ref, "EPSG:2154")
+    self.trans_target_to_tile = Transformer.from_crs(self.target_ref, self.ortho_ref)
+    self.trans_target_from_tile = Transformer.from_crs(self.ortho_ref, self.target_ref)
     self.trans_wgs84_from_tile = Transformer.from_crs(self.ortho_ref, "WGS84")
 
     self.x0 = zoomconfig['x0']
@@ -206,13 +210,13 @@ class LazColorize(object):
     lat, lon = transformer.transform(ax, ay)
     return lat, lon
 
-  def lamb93_to_tile(self, lamb_x, lamb_y):
-    """Convert Lambert93 coordinates to tile number at the current zoom level."""
-    return self.transform_to_tile(lamb_x, lamb_y, self.trans_lamb93_to_tile)
+  def target_to_tile(self, lamb_x, lamb_y):
+    """Convert target coordinates to tile number at the current zoom level."""
+    return self.transform_to_tile(lamb_x, lamb_y, self.trans_target_to_tile)
 
-  def lamb93_from_tile(self, tile_x, tile_y):
-    """Convert API tile coordinates at the current zoom level to Lambert93."""
-    return self.transform_from_tile(tile_x, tile_y, self.trans_lamb93_from_tile)
+  def target_from_tile(self, tile_x, tile_y):
+    """Convert API tile coordinates at the current zoom level to target coordinates."""
+    return self.transform_from_tile(tile_x, tile_y, self.trans_target_from_tile)
 
   def wgs84_from_tile(self, tile_x, tile_y):
     """Convert API tile coordinates at the current zoom level to WGS84."""
@@ -227,7 +231,7 @@ class LazColorize(object):
     self.infile = infile
 
     #
-    # Compute the Lambert93 coordinates of the northwest corner of the Lidar zone.
+    # Compute the target coordinates of the northwest corner of the Lidar zone.
     # Add margin on every border to account for coordinate conversion with gdalwarp.
     #
 
@@ -244,8 +248,8 @@ class LazColorize(object):
     #
     # Convert to API tile coordinates
     #
-    tx1, ty1, tx1_orig, ty1_orig = self.lamb93_to_tile(lambx1, lamby1)
-    tx2, ty2, tx2_orig, ty2_orig = self.lamb93_to_tile(lambx2, lamby2)
+    tx1, ty1, tx1_orig, ty1_orig = self.target_to_tile(lambx1, lamby1)
+    tx2, ty2, tx2_orig, ty2_orig = self.target_to_tile(lambx2, lamby2)
 
 
     # Determine the range for the tiles we are going to get from the API
@@ -256,16 +260,16 @@ class LazColorize(object):
     tx2_orig, ty2_orig = self.tile_to_geo(txend, tyend)
 
     #
-    # Compute the Lambert93 bounds of the final image (not used except for display)
+    # Compute the bounds in target coordinates of the final image (not used except for display)
     #
-    lambert_topleft_x, lambert_topleft_y = self.lamb93_from_tile(txstart, tystart)
-    lambert_bottomright_x, lambert_bottomright_y = self.lamb93_from_tile(txend, tyend)
+    lambert_topleft_x, lambert_topleft_y = self.target_from_tile(txstart, tystart)
+    lambert_bottomright_x, lambert_bottomright_y = self.target_from_tile(txend, tyend)
 
-    print("API top left %d, %d Lambert93 %.2f, %.2f\nTop left on OSM %s"
-      % (txstart, tystart, lambert_topleft_x, lambert_topleft_y,
+    print("API top left %d, %d %s %.2f, %.2f\nTop left on OSM %s"
+      % (txstart, tystart, self.target_ref, lambert_topleft_x, lambert_topleft_y,
       self.osm_marker(txstart, tystart)))
-    print("API bottom right %d, %d Lambert93 %.2f, %.2f\nBottom right on OSM %s"
-      % (txend-1, tyend-1, lambert_bottomright_x, lambert_bottomright_y,
+    print("API bottom right %d, %d %s %.2f, %.2f\nBottom right on OSM %s"
+      % (txend-1, tyend-1, self.target_ref, lambert_bottomright_x, lambert_bottomright_y,
       self.osm_marker(txend, tyend)))
 
     size_x = (txend-txstart)*self.tile_size_x
@@ -308,17 +312,17 @@ class LazColorize(object):
     if not self.main_config.get('keeptmpfiles', False):
       os.unlink(outprefix+'.png')
 
-    if self.ortho_ref != 'EPSG:2154':
+    if self.ortho_ref != self.target_ref:
       #
-      # The tiles obtained from the API were not Lambert93.
-      # Project to a new Lambert93 georeferenced TIFF.
+      # The tiles obtained from the API were not in the target coordinates.
+      # Project to a new georeferenced TIFF in the target coordinates.
       #
       subprocess.run([
         self.main_config['gdalwarp_path'],
-        "-t_srs", "EPSG:2154",
+        "-t_srs", self.target_ref,
         "-r", "bilinear",
         "%s.%s.tiff" % (outprefix, self.ortho_ref_file),
-        "%s.EPSG_2154.tiff" % outprefix])
+        "%s.%s.tiff" % (outprefix, self.target_ref_file)])
 
       if not self.main_config.get('keeptmpfiles', False):
         os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref_file))
@@ -335,7 +339,7 @@ class LazColorize(object):
         self.infile,
         {
             "type": "filters.colorization",
-            "raster": outprefix+'.EPSG_2154.tiff'
+            "raster": '%s.%s.tiff' % (outprefix, self.target_ref_file)
         },
         {
             "type": "writers.las",
