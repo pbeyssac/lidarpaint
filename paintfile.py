@@ -342,7 +342,7 @@ class LazColorize(object):
             "compression": "true",
             "minor_version": "2",
             "dataformat_id": "3",
-            "filename": 'color_%04d_%04d_LA93.laz' % (lambx_km, lamby_km)
+            "filename": 'color_%04d_%04d_LA93.laz.tmp' % (lambx_km, lamby_km),
         }
       ]
     }
@@ -351,6 +351,9 @@ class LazColorize(object):
       json.dump(pdal_config, pdalf)
 
     subprocess.run([self.main_config['pdal_path'], "pipeline", "pdal_tmp.json"])
+
+    os.rename('color_%04d_%04d_LA93.laz.tmp' % (lambx_km, lamby_km), 'color_%04d_%04d_LA93.laz' % (lambx_km, lamby_km))
+
     if not self.main_config.get('keeptmpfiles', False):
       os.unlink('%s.%s.tiff' % (outprefix, self.target_ref_file))
 
