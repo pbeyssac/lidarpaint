@@ -45,6 +45,74 @@ wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&S
 wmts_GetCapabilities_fmt = 'SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities'
 
 
+class TileCoords(object):
+  """Handle tile coordinate conversion."""
+  def __init__(self, ortho_ref, target_ref, zoomconfig):
+    self.ortho_ref = ortho_ref
+    self.target_ref = target_ref
+    self.trans_target_to_wmtsref = Transformer.from_crs(self.target_ref, self.ortho_ref)
+    self.trans_target_from_wmtsref = Transformer.from_crs(self.ortho_ref, self.target_ref)
+    self.trans_wgs84_from_wmtsref = Transformer.from_crs(self.ortho_ref, "WGS84")
+
+    self.x0 = zoomconfig['x0']
+    self.y0 = zoomconfig['y0']
+    scale_denominator = zoomconfig['scale_denominator']
+
+    # 0.28 millimeter per pixel = hardcoded value from the WMTS standard
+    self.mpp = 0.00028*scale_denominator
+
+    self.tile_size_x = zoomconfig['tile_size_x']
+    self.tile_size_y = zoomconfig['tile_size_y']
+    self.tile_mx = self.tile_size_x*self.mpp
+    self.tile_my = self.tile_size_y*self.mpp
+
+  def get_params(self):
+    return self.mpp, self.tile_size_x, self.tile_size_y
+
+  def tile_size(self):
+    return self.tile_size_x, self.tile_size_y
+
+  def wmts_transform_to_tile(self, lat, lon, transformer):
+    """Transform latitude, longitude to x, y tile number at the current zoom level."""
+    ax, ay = transformer.transform(lat, lon)
+    bx = ax - self.x0
+    by = self.y0 - ay
+    tile_x = bx/self.tile_mx
+    tile_y = by/self.tile_my
+    return tile_x, tile_y, ax, ay
+
+  def wmts_tile_to_geo(self, tile_x, tile_y):
+    """Convert API tile coordinates at the current zoom level to projection coordinates."""
+    bx = tile_x*self.tile_mx
+    by = tile_y*self.tile_my
+    ax = bx + self.x0
+    ay = self.y0 - by
+    return ax, ay
+
+  def wmts_transform_from_tile(self, tile_x, tile_y, transformer):
+    """Convert API tile coordinates at the current zoom level back to API projection coordinates."""
+    ax, ay = self.wmts_tile_to_geo(tile_x, tile_y)
+    lat, lon = transformer.transform(ax, ay)
+    return lat, lon
+
+  def wmts_target_to_tile(self, lamb_x, lamb_y):
+    """Convert target coordinates to tile number at the current zoom level."""
+    return self.wmts_transform_to_tile(lamb_x, lamb_y, self.trans_target_to_wmtsref)
+
+  def wmts_target_from_tile(self, tile_x, tile_y):
+    """Convert API tile coordinates at the current zoom level to target coordinates."""
+    return self.wmts_transform_from_tile(tile_x, tile_y, self.trans_target_from_wmtsref)
+
+  def wmts_wgs84_from_tile(self, tile_x, tile_y):
+    """Convert API tile coordinates at the current zoom level to WGS84."""
+    return self.wmts_transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_wmtsref)
+
+  def osm_marker(self, tile_x, tile_y):
+    """Return pointer to map on OSM web site."""
+    p = self.wmts_transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_wmtsref)
+    return 'https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=16/%.5f/%.5f' % (p[0], p[1], p[0], p[1])
+
+
 class LazColorize(object):
   """Colorize IGN .laz files using IGN aerial imagery from their WMTS API.
   """
@@ -75,11 +143,11 @@ class LazColorize(object):
     # Zoom level to look for in WMTS
     self.zoom = self.config['zoom']
 
-    if not self.load_capabilities():
+    if not self.wmts_load_capabilities():
       print("Unable to load capabilities")
       return
 
-    self.print_capabilities()
+    self.wmts_print_capabilities()
 
     #
     # Get the WMTS layer configuration, then from that the zoom configuration
@@ -88,35 +156,25 @@ class LazColorize(object):
     self.format = self.layer_config['format']
     self.format_ext = self.format.split('/', 1)[1]
     self.matrixset_identifier = self.layer_config['matrixset']
+
     matrixconfig = self.matrixset_dict[self.layer_config['matrixset']]
     zoomconfig = matrixconfig['zooms'][str(self.zoom)]
     self.ortho_ref = matrixconfig['crs']
     self.ortho_ref_file = matrixconfig['crs'].replace(':', '_')
 
+    self.TC = TileCoords(self.ortho_ref, self.target_ref, zoomconfig)
+
     self.ni = 0
     self.testmode = False
 
-    self.trans_target_to_tile = Transformer.from_crs(self.target_ref, self.ortho_ref)
-    self.trans_target_from_tile = Transformer.from_crs(self.ortho_ref, self.target_ref)
-    self.trans_wgs84_from_tile = Transformer.from_crs(self.ortho_ref, "WGS84")
+    mpp, self.tile_size_x, self.tile_size_y = self.TC.get_params()
 
-    self.x0 = zoomconfig['x0']
-    self.y0 = zoomconfig['y0']
-    scale_denominator = zoomconfig['scale_denominator']
-
-    # 0.28 millimeter per pixel = hardcoded value from the WMTS standard
-    self.mpp = 0.00028*scale_denominator
-
-    self.tile_size_x = zoomconfig['tile_size_y']
-    self.tile_size_y = zoomconfig['tile_size_x']
-    self.tile_mx = self.tile_size_x*self.mpp
-    self.tile_my = self.tile_size_y*self.mpp
     print("\nConfigured for key '%s' layer '%s'" % (self.key, self.layer))
     print("Zoom level %s, %.6f meters per pixel, %.2f pixels per kilometer, %dx%d pixels per tile"
-      % (self.zoom, self.mpp, 1000/self.mpp, self.tile_size_x, self.tile_size_y))
+      % (self.zoom, mpp, 1000/mpp, self.tile_size_x, self.tile_size_y))
 
 
-  def print_capabilities(self):
+  def wmts_print_capabilities(self):
     print("Available layers on key '%s':" % self.key)
     print()
     for layer in self.layer_dict.values():
@@ -127,7 +185,7 @@ class LazColorize(object):
       values['zooms'] = ' '.join(matrixset['zooms'].keys())
       print("%(id)-45s\t%(format)-4s\n\tProjection %(proj)-11s zooms %(zooms)s" % values)
 
-  def load_capabilities(self):
+  def wmts_load_capabilities(self):
     """Get WMTS capabilities from server."""
     print("Getting WMTS capabilities for config", self.config_identifier, "key", self.key)
     url = self.config['endpoint_url'] % {'key': self.key} + wmts_GetCapabilities_fmt
@@ -187,55 +245,17 @@ class LazColorize(object):
     self.matrixset_dict = matrixset_dict
     return True
 
-  def transform_to_tile(self, lat, lon, transformer):
-    """Transform latitude, longitude to x, y tile number at the current zoom level."""
-    ax, ay = transformer.transform(lat, lon)
-    bx = ax - self.x0
-    by = self.y0 - ay
-    tile_x = bx/self.tile_mx
-    tile_y = by/self.tile_my
-    return tile_x, tile_y, ax, ay
-
-  def tile_to_geo(self, tile_x, tile_y):
-    """Convert API tile coordinates at the current zoom level to projection coordinates."""
-    bx = tile_x*self.tile_mx
-    by = tile_y*self.tile_my
-    ax = bx + self.x0
-    ay = self.y0 - by
-    return ax, ay
-
-  def transform_from_tile(self, tile_x, tile_y, transformer):
-    """Convert API tile coordinates at the current zoom level back to API projection coordinates."""
-    ax, ay = self.tile_to_geo(tile_x, tile_y)
-    lat, lon = transformer.transform(ax, ay)
-    return lat, lon
-
-  def target_to_tile(self, lamb_x, lamb_y):
-    """Convert target coordinates to tile number at the current zoom level."""
-    return self.transform_to_tile(lamb_x, lamb_y, self.trans_target_to_tile)
-
-  def target_from_tile(self, tile_x, tile_y):
-    """Convert API tile coordinates at the current zoom level to target coordinates."""
-    return self.transform_from_tile(tile_x, tile_y, self.trans_target_from_tile)
-
-  def wgs84_from_tile(self, tile_x, tile_y):
-    """Convert API tile coordinates at the current zoom level to WGS84."""
-    return self.transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_tile)
-
-  def osm_marker(self, tile_x, tile_y):
-    """Return pointer to map on OSM web site."""
-    p = self.transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_tile)
-    return 'https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=16/%.5f/%.5f' % (p[0], p[1], p[0], p[1])
-
-  def get_extent(self, lambx_km, lamby_km, infile):
-    self.infile = infile
+  def wmts_compute_tile_parameters(self, lambx_km, lamby_km, margin):
+    """From a northwest tile origin, compute the integer ranges of tile coordinates
+    to get from WMTS.
+    Return the ranges + x & y image size + geographical ranges in the WMTS reference system
+    """
 
     #
     # Compute the target coordinates of the northwest corner of the Lidar zone.
     # Add margin on every border to account for coordinate conversion with gdalwarp.
     #
 
-    margin = self.config['margin']
     lambx1 = lambx_km*1000 - margin
     lamby1 = lamby_km*1000 + margin
 
@@ -248,32 +268,39 @@ class LazColorize(object):
     #
     # Convert to API tile coordinates
     #
-    tx1, ty1, tx1_orig, ty1_orig = self.target_to_tile(lambx1, lamby1)
-    tx2, ty2, tx2_orig, ty2_orig = self.target_to_tile(lambx2, lamby2)
+    tx1, ty1, tx1_orig, ty1_orig = self.TC.wmts_target_to_tile(lambx1, lamby1)
+    tx2, ty2, tx2_orig, ty2_orig = self.TC.wmts_target_to_tile(lambx2, lamby2)
 
 
     # Determine the range for the tiles we are going to get from the API
     txstart, tystart = int(tx1), int(ty1)
     txend, tyend = int(math.ceil(tx2)), int(math.ceil(ty2))
 
-    tx1_orig, ty1_orig = self.tile_to_geo(txstart, tystart)
-    tx2_orig, ty2_orig = self.tile_to_geo(txend, tyend)
+    tx1_orig, ty1_orig = self.TC.wmts_tile_to_geo(txstart, tystart)
+    tx2_orig, ty2_orig = self.TC.wmts_tile_to_geo(txend, tyend)
 
     #
     # Compute the bounds in target coordinates of the final image (not used except for display)
     #
-    lambert_topleft_x, lambert_topleft_y = self.target_from_tile(txstart, tystart)
-    lambert_bottomright_x, lambert_bottomright_y = self.target_from_tile(txend, tyend)
+    lambert_topleft_x, lambert_topleft_y = self.TC.wmts_target_from_tile(txstart, tystart)
+    lambert_bottomright_x, lambert_bottomright_y = self.TC.wmts_target_from_tile(txend, tyend)
 
     print("API top left %d, %d %s %.2f, %.2f\nTop left on OSM %s"
       % (txstart, tystart, self.target_ref, lambert_topleft_x, lambert_topleft_y,
-      self.osm_marker(txstart, tystart)))
+      self.TC.osm_marker(txstart, tystart)))
     print("API bottom right %d, %d %s %.2f, %.2f\nBottom right on OSM %s"
       % (txend-1, tyend-1, self.target_ref, lambert_bottomright_x, lambert_bottomright_y,
-      self.osm_marker(txend, tyend)))
+      self.TC.osm_marker(txend, tyend)))
 
     size_x = (txend-txstart)*self.tile_size_x
     size_y = (tyend-tystart)*self.tile_size_y
+
+    return (txstart, txend, tystart, tyend, size_x, size_y,
+            tx1_orig, ty1_orig, tx2_orig, ty2_orig)
+
+
+  def wmts_fetch_image(self, txstart, txend, tystart, tyend, size_x, size_y, filename):
+    """Fetch the given tile coordinate range then save to a file."""
     print("Creating image size %dx%d" % (size_x, size_y))
     full_image = Image.new('RGB', (size_x, size_y), (0,250,0))
 
@@ -281,21 +308,38 @@ class LazColorize(object):
     for y in range(tystart, tyend):
       xpix = 0
       for x in range(txstart, txend):
-        i = self.fetch_tile(x, y)
+        i = self.wmtfs_fetch_tile(x, y)
         full_image.paste(i, (xpix, ypix))
         xpix += self.tile_size_x
       ypix += self.tile_size_y
 
     #
+    # Write the reassembled (about 1000 m + 2*margin)² m² aerial picture
+    #
+    full_image.save(filename)
+
+  def get_extent(self, lambx_km, lamby_km, infile):
+    self.infile = infile
+    margin = self.config['margin']
+
+    (txstart, txend, tystart, tyend, size_x, size_y,
+      tx1_orig, ty1_orig, tx2_orig, ty2_orig) = self.wmts_compute_tile_parameters(lambx_km, lamby_km, margin)
+
+    outprefix = "img-%s-%04d-%04d" % (self.zoom, lambx_km, lamby_km)
+
+    image_wmts = outprefix + ".png"
+    image_wmts_georef = "%s.%s.tiff" % (outprefix, self.ortho_ref_file)
+    image_final = "%s.%s.tiff" % (outprefix, self.target_ref_file)
+
+    #
+    # Fetch the initial image we are going to work on.
+    #
+    self.wmts_fetch_image(txstart, txend, tystart, tyend, size_x, size_y, image_wmts)
+
+    #
     # The following could probably be done in fewer steps using
     # GDAL. At least it works.
     #
-
-    #
-    # Write the reassembled (1000 + 2*margin)² m² aerial picture as a PNG
-    #
-    outprefix = "img-%s-%04d-%04d" % (self.zoom, lambx_km, lamby_km)
-    full_image.save(outprefix + ".png")
 
     #
     # Convert to a georeferenced TIFF
@@ -306,11 +350,11 @@ class LazColorize(object):
       "-of", "GTiff",
       "-a_srs", self.ortho_ref,
       "-a_ullr", "%f" % tx1_orig, "%f" % ty1_orig, "%f" % tx2_orig, "%f" % ty2_orig,
-      "%s.png" % outprefix,
+      image_wmts,
       "%s.%s.tiff" % (outprefix, self.ortho_ref_file)])
 
     if not self.main_config.get('keeptmpfiles', False):
-      os.unlink(outprefix+'.png')
+      os.unlink(image_wmts)
 
     if self.ortho_ref != self.target_ref:
       #
@@ -321,11 +365,10 @@ class LazColorize(object):
         self.main_config['gdalwarp_path'],
         "-t_srs", self.target_ref,
         "-r", "bilinear",
-        "%s.%s.tiff" % (outprefix, self.ortho_ref_file),
-        "%s.%s.tiff" % (outprefix, self.target_ref_file)])
+        image_wmts_georef, image_final])
 
       if not self.main_config.get('keeptmpfiles', False):
-        os.unlink('%s.%s.tiff' % (outprefix, self.ortho_ref_file))
+        os.unlink(image_wmts_georef)
 
     #
     # Run PDAL for the final colorization step using the georeferenced image.
@@ -339,7 +382,7 @@ class LazColorize(object):
         self.infile,
         {
             "type": "filters.colorization",
-            "raster": '%s.%s.tiff' % (outprefix, self.target_ref_file)
+            "raster": image_final
         },
         {
             "type": "writers.las",
@@ -360,9 +403,9 @@ class LazColorize(object):
     os.rename('color_%04d_%04d_LA93.laz.tmp' % (lambx_km, lamby_km), 'color_%04d_%04d_LA93.laz' % (lambx_km, lamby_km))
 
     if not self.main_config.get('keeptmpfiles', False):
-      os.unlink('%s.%s.tiff' % (outprefix, self.target_ref_file))
+      os.unlink(image_final)
 
-  def fetch_tile(self, tile_x, tile_y):
+  def wmtfs_fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
     if self.testmode:
       self.ni += 1
