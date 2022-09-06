@@ -201,7 +201,7 @@ class LazColorize(object):
     return ax, ay
 
   def transform_from_tile(self, tile_x, tile_y, transformer):
-    """Convert API tile coordinates at the current zoom level back to Web Mercator."""
+    """Convert API tile coordinates at the current zoom level back to API projection coordinates."""
     ax, ay = self.tile_to_geo(tile_x, tile_y)
     lat, lon = transformer.transform(ax, ay)
     return lat, lon
