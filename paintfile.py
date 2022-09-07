@@ -245,42 +245,64 @@ class LazColorize(object):
     self.matrixset_dict = matrixset_dict
     return True
 
-  def wmts_compute_tile_parameters(self, lambx_km, lamby_km, margin):
+  def wmts_compute_tile_parameters(self, lambx_km, lamby_km):
     """From a northwest tile origin, compute the integer ranges of tile coordinates
     to get from WMTS.
     Return the ranges + x & y image size + geographical ranges in the WMTS reference system
     """
 
-    #
-    # Compute the target coordinates of the northwest corner of the Lidar zone.
-    # Add margin on every border to account for coordinate conversion with gdalwarp.
-    #
 
-    lambx1 = lambx_km*1000 - margin
-    lamby1 = lamby_km*1000 + margin
+    txlist = []
+    tylist = []
 
     #
-    # Compute southeast corner of the Lidar zone + margin
+    # Compute the WMTS coordinates of the 4 corners of the Lidar zone.
     #
-    lambx2 = lambx1 + 1000 + 2*margin
-    lamby2 = lamby1 - 1000 - 2*margin
+    # The loop is arranged so that the top left corner is first in the results
+    # and the bottom right corner last, in order to get tx1, tx1_orig & al at the end.
+    #
+
+    for x in [lambx_km*1000, (lambx_km+1)*1000]:
+      for y in [lamby_km*1000, (lamby_km-1)*1000]:
+        #
+        # Convert to API tile and geographical coordinates
+        #
+        tx, ty, tx_orig, ty_orig = self.TC.wmts_target_to_tile(x, y)
+        txlist.append((tx, tx_orig))
+        tylist.append((ty, ty_orig))
 
     #
-    # Convert to API tile coordinates
+    # Get the top left and bottom right corners
     #
-    tx1, ty1, tx1_orig, ty1_orig = self.TC.wmts_target_to_tile(lambx1, lamby1)
-    tx2, ty2, tx2_orig, ty2_orig = self.TC.wmts_target_to_tile(lambx2, lamby2)
+    tx1, tx1_orig = txlist[0]
+    ty1, ty1_orig = tylist[0]
+    tx2, tx2_orig = txlist[-1]
+    ty2, ty2_orig = tylist[-1]
 
+    #
+    # Compute the bounding box of the WMTS coordinates.
+    # This accounts for margins needed for projection with gdalwarp.
+    #
+    # Round to integer tile coordinates since we can only fetch
+    # full tiles.
+    #
+    txlist.sort()
+    tylist.sort()
+    txstart = int(txlist[0][0])
+    tystart = int(tylist[0][0])
+    txend = math.ceil(txlist[-1][0])
+    tyend = math.ceil(tylist[-1][0])
 
-    # Determine the range for the tiles we are going to get from the API
-    txstart, tystart = int(tx1), int(ty1)
-    txend, tyend = int(math.ceil(tx2)), int(math.ceil(ty2))
-
+    #
+    # Convert the rounded bounding box to WMTS geographical coordinates
+    # to georeference the image later.
+    #
     tx1_orig, ty1_orig = self.TC.wmts_tile_to_geo(txstart, tystart)
     tx2_orig, ty2_orig = self.TC.wmts_tile_to_geo(txend, tyend)
 
     #
-    # Compute the bounds in target coordinates of the final image (not used except for display)
+    # Compute the bounds in target coordinates of the final image.
+    # Not used except for display, but shows the margins.
     #
     lambert_topleft_x, lambert_topleft_y = self.TC.wmts_target_from_tile(txstart, tystart)
     lambert_bottomright_x, lambert_bottomright_y = self.TC.wmts_target_from_tile(txend, tyend)
@@ -314,16 +336,15 @@ class LazColorize(object):
       ypix += self.tile_size_y
 
     #
-    # Write the reassembled (about 1000 m + 2*margin)² m² aerial picture
+    # Write the reassembled (about 1km² + margins to account for reprojection) aerial picture
     #
     full_image.save(filename)
 
   def get_extent(self, lambx_km, lamby_km, infile):
     self.infile = infile
-    margin = self.config['margin']
 
     (txstart, txend, tystart, tyend, size_x, size_y,
-      tx1_orig, ty1_orig, tx2_orig, ty2_orig) = self.wmts_compute_tile_parameters(lambx_km, lamby_km, margin)
+      tx1_orig, ty1_orig, tx2_orig, ty2_orig) = self.wmts_compute_tile_parameters(lambx_km, lamby_km)
 
     outprefix = "img-%s-%04d-%04d" % (self.zoom, lambx_km, lamby_km)
 
