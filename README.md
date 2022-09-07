@@ -12,7 +12,7 @@ L'autre script `paintfile.py` travaille avec des fichiers .laz IGN déjà télé
 Les URL des fichiers .laz sont à trouver sur :
 https://geoservices.ign.fr/lidarhd#telechargement
 
-### Comment ça marche :
+### Comment ça marche
 
 Le script récupère les données 3D IGN, identifie la position géographique et va alors chercher les dalles 256x256 pixels d'orthophotographie aérienne correspondantes.
 
@@ -42,6 +42,14 @@ Pour découvrir Monistrol d'Allier en 3D :
 
 `./painturl 'https://wxs.ign.fr/c90xknypoz1flvgojchbphgt/telechargement/prepackage/LIDARHD_PACK_MN_2021$LIDARHD_1-0_LAZ_MN-0750_6431-2021/file/LIDARHD_1-0_LAZ_MN-0750_6431-2021.7z'`
 `displaz *.laz`
+
+Le programme supprime après usage les fichiers volumineux qui ne sont plus nécessaires.
+
+Pour éviter de re-télécharger une zone, il est possible de re-coloriser
+une dalle .laz déjà colorisée en la redonnant à `paintfile`. Cela
+permet de tester un changement de couche orthophotographique :
+
+`./paintfile.py color_0750_6431_LA93.laz`
 
 Code en licence BSD.
 
