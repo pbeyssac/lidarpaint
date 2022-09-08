@@ -333,7 +333,7 @@ class LazColorize(object):
     for y in range(tystart, tyend):
       xpix = 0
       for x in range(txstart, txend):
-        i = self.wmtfs_fetch_tile(x, y)
+        i = self.wmts_fetch_tile(x, y)
         full_image.paste(i, (xpix, ypix))
         xpix += self.tile_size_x
       ypix += self.tile_size_y
@@ -429,7 +429,7 @@ class LazColorize(object):
     if not self.main_config.get('keeptmpfiles', False):
       os.unlink(image_wmts_target_georef)
 
-  def wmtfs_fetch_tile(self, tile_x, tile_y):
+  def wmts_fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
     if self.testmode:
       self.ni += 1
