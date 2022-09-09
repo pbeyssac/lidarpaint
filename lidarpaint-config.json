@@ -1,12 +1,37 @@
 {
-    "default_layer": "PM",
+    "default_layer": "IGN-HR",
     "cache_dir": ".cache",
     "pdal_path": "/usr/local/bin/pdal",
     "gdalwarp_path": "/usr/local/bin/gdalwarp",
     "gdal_translate_path": "/usr/local/bin/gdal_translate",
     "keeptmpfiles": false,
     "layers": {
+        "IGN-HR": {
+            "protocol": "wms",
+            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS",
+            "crs": "EPSG:4326",
+            "key": "ortho",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/r/wms?"
+            "crs": "EPSG:4326",
+            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS"
+        },
+        "IGN-THR": {
+            "comment": "Pas disponible sur tout le territoire français",
+            "protocol": "wms",
+            "layer": "THR.ORTHOIMAGERY.ORTHOPHOTOS",
+            "crs": "EPSG:4326",
+            "key": "ortho",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/r/wms?"
+        },
+        "IGN-INSPIRE": {
+            "protocol": "wms",
+            "layer": "OI.OrthoimageCoverage.HR",
+            "crs": "EPSG:4326",
+            "key": "inspire",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/inspire/r/wms?"
+        },
         "PM": {
+            "protocol": "wmts",
             "description": "Basic IGN WebMercator tiles. Margin necessary for reprojection.",
             "zoom": "19",
             "layer": "ORTHOIMAGERY.ORTHOPHOTOS",
@@ -14,6 +39,7 @@
             "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
         },
         "LAMB93": {
+            "protocol": "wmts",
             "description": "IGN Lambert 93 tiles, avoiding a reprojection, but lower resolution",
             "zoom": "18",
             "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS.L93",
@@ -21,6 +47,7 @@
             "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
         },
         "CADASTRE": {
+            "protocol": "wmts",
             "description": "French cadastral layer, for fun",
             "zoom": "17",
             "layer": "CADASTRALPARCELS.PARCELS.L93",
@@ -28,6 +55,7 @@
             "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
         },
         "DRONES": {
+            "protocol": "wmts",
             "description": "Drone flight restrictions",
             "zoom": "14",
             "layer": "TRANSPORTS.DRONES.RESTRICTIONS",

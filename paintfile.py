@@ -22,6 +22,8 @@ from PIL import Image
 from pyproj import Transformer
 import requests
 
+# Useful to evaluate the size of WMS images we should fetch
+lidar_resolution_m = .2
 
 #
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
@@ -45,10 +47,30 @@ colors = [(250,0,0),(0,250,0),(0,0,250),(0,250,250),(250,0,250),(250,250,0),(250
 wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&STYLE=%(style)s&TILEMATRIXSET=%(matrixset_identifier)s&TILEMATRIX=%(zoom)s&TILEROW=%(y)s&TILECOL=%(x)s&FORMAT=%(format)s'
 wmts_GetCapabilities_fmt = 'SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities'
 
+# WMS request templates
+wms_GetCapabilities_fmt = 'SERVICE=WMS&REQUEST=GetCapabilities'
+wms_GetMap_fmt = 'LAYERS=%(layer)s&EXCEPTIONS=text/xml&FORMAT=%(format)s&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&STYLES=&CRS=%(crs)s&BBOX=%(bottomleft_lat)f,%(bottomleft_lon)f,%(topright_lat)f,%(topright_lon)f&WIDTH=%(size_x)d&HEIGHT=%(size_y)d'
+
 
 def osm_marker(p):
   """Return pointer to map on OSM web site."""
   return 'https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=16/%.5f/%.5f' % (p[0], p[1], p[0], p[1])
+
+
+def georeference_image(main_config, orig_name, image_ortho_georef, ortho_ref, min_lat, max_lat, min_lon, max_lon):
+  """Convert image to a georeferenced TIFF."""
+
+  subprocess.run([
+    main_config['gdal_translate_path'],
+    "-a_nodata", "0",
+    "-of", "GTiff",
+    "-a_srs", ortho_ref,
+    "-a_ullr", "%f" % min_lon, "%f" % max_lat, "%f" % max_lon, "%f" % min_lat,
+    orig_name,
+    image_ortho_georef])
+
+  if not main_config.get('keeptmpfiles', False):
+    os.unlink(orig_image)
 
 
 class TileCoords(object):
@@ -230,17 +252,8 @@ class TileHandler(object):
     #
     # Convert to a georeferenced TIFF
     #
-    subprocess.run([
-      self.main_config['gdal_translate_path'],
-      "-a_nodata", "0",
-      "-of", "GTiff",
-      "-a_srs", ortho_ref,
-      "-a_ullr", "%f" % tx1_orig, "%f" % ty1_orig, "%f" % tx2_orig, "%f" % ty2_orig,
-      image,
-      image_ortho_georef])
-
-    if not self.main_config.get('keeptmpfiles', False):
-      os.unlink(image)
+    georeference_image(self.main_config, image, image_ortho_georef, ortho_ref,
+      ty2_orig, ty1_orig, tx1_orig, tx2_orig)
     return ortho_ref, image_ortho_georef
 
 
@@ -285,7 +298,7 @@ class WmtsHandler(TileHandler):
 
     mpp, self.tile_size_x, self.tile_size_y = self.TC.get_params()
 
-    print("\nConfigured for key '%s' layer '%s'" % (self.key, self.layer))
+    print("\nConfigured for key '%s' layer '%s', map CRS %s" % (self.key, self.layer, self.ortho_ref))
     print("Zoom level %s, %.6f meters per pixel, %.2f pixels per kilometer, %dx%d pixels per tile"
       % (self.zoom, mpp, 1000/mpp, self.tile_size_x, self.tile_size_y))
 
@@ -419,7 +432,298 @@ class WmtsHandler(TileHandler):
 
 
 
+#
+# Based on "OpenGIS® Web Map Server Implementation Specification Version: 1.3.0"
+# https://portal.ogc.org/files/?artifact_id=14416
+#
 
+class WmsHandler(object):
+  def __init__(self, main_config, config, config_identifier, target_ref):
+    self.config = config
+    self.main_config = main_config
+    self.config_identifier = config_identifier
+    self.target_ref = target_ref
+
+    # WMTS endpoint API key
+    self.key = config['key']
+
+    # Layer name to look for in WMS
+    self.layer = config['layer']
+
+    self.session = requests.Session()
+    if not self.load_capabilities():
+      print("Unable to load capabilities")
+      return
+
+    self.print_capabilities()
+
+    #
+    # Get the WMS layer configuration
+    #
+    self.layer_config = self.find_layer(self.layer)
+    self.format = 'image/geotiff' if 'image/geotiff' in self.formats else self.formats[0]
+    self.format_ext = self.format.split('/', 1)[1]
+
+    self.ortho_ref = config['crs']
+    self.target_ref = target_ref
+
+    self.ni = 0
+    self.testmode = False
+
+    self.trans_target_to_wmsref = Transformer.from_crs(self.target_ref, self.ortho_ref)
+    self.trans_target_from_wmsref = Transformer.from_crs(self.ortho_ref, self.target_ref)
+    self.trans_wgs84_from_wmsref = Transformer.from_crs(self.ortho_ref, "WGS84")
+
+    min_scale_denominator = self.layer_config['min_scale_denominator']
+
+    # 0.28 millimeter per pixel = hardcoded value from the WMS standard
+    mpp = 0.00028*min_scale_denominator
+    print("\nConfigured for key '%s' layer '%s'" % (self.key, self.layer))
+    if mpp > 0:
+      print("Max advertised resolution by server: %.3f meters per pixel, %.2f pixels per kilometer" % (mpp, 1000/mpp))
+    else:
+      print("Max advertised resolution by server: %.3f meters per pixel" % (mpp,))
+
+    self.size_x = min(1050/lidar_resolution_m, self.maxwidth)
+    self.size_y = min(1050/lidar_resolution_m, self.maxheight)
+    print("Will use %dx%d" % (self.size_x, self.size_y))
+
+
+  def load_layer(self, layer, xmlns):
+    "Recursively parse XML for a layer."""
+    crs_list = []
+    for crs in layer.findall('CRS', xmlns):
+      crs_list.append(crs.text)
+    title = layer.find('Title', xmlns).text
+    layer_name = layer.find('Name', xmlns)
+    layer_entry = {
+      'title': title,
+      'crs' : crs_list
+    }
+    abstract = layer.find('Abstract', xmlns)
+    if abstract is not None:
+      layer_entry['abstract'] = abstract.text
+    style = layer.find('Style')
+    if style is not None:
+      layer_entry['style'] = layer.find('Style/Name', xmlns).text
+    if layer_name is not None:
+      layer_name_text = layer_name.text
+      layer_entry['name'] = layer_name_text
+    minsd = layer.find('MinScaleDenominator', xmlns)
+    if minsd is not None:
+      layer_entry['min_scale_denominator'] = float(minsd.text)
+    maxsd = layer.find('MaxScaleDenominator', xmlns)
+    if maxsd is not None:
+      layer_entry['max_scale_denominator'] = float(maxsd.text)
+
+    layers = []
+    for sub_layer in layer.findall('Layer', xmlns):
+      layers.append(self.load_layer(sub_layer, xmlns))
+    layer_entry['layer'] = layers
+    return layer_entry
+
+  def find_layer(self, name):
+    """Find layer by name."""
+    layer_entry = {'max_scale_denominator': 1e12, 'min_scale_denominator': 0, 'crs': []}
+    return self.find_layer_r(layer_entry, name, self.layers)
+
+  def find_layer_r(self, layer_entry, name, layers):
+    """Recursively find layer by name, inheriting attributes."""
+    for layer in layers:
+      current_entry = layer_entry.copy()
+      if 'max_scale_denominator' in layer:
+        current_entry['max_scale_denominator'] = layer['max_scale_denominator']
+      if 'min_scale_denominator' in layer:
+        current_entry['min_scale_denominator'] = layer['min_scale_denominator']
+      current_entry['crs'] += layer['crs']
+      if layer.get('name', None) == name:
+        for attr in ['name', 'title', 'abstract']:
+          if attr in layer:
+            current_entry[attr] = layer[attr]
+        return current_entry
+      sub = self.find_layer_r(current_entry, name, layer['layer'])
+      if sub:
+        return sub
+    return None
+
+  def load_capabilities(self):
+    print("Getting WMS capabilities for config", self.config_identifier, "key", self.key)
+    print()
+    url = self.config['endpoint_url'] % {'key': self.key} + wms_GetCapabilities_fmt
+
+    r = self.session.get(url)
+    if r.status_code != 200:
+      return False
+    content = r.content
+
+    xmlns = {
+      '': 'http://www.opengis.net/wms',
+      'inspire_common': 'http://inspire.ec.europa.eu/schemas/common/1.0',
+      'inspire_vs': 'http://inspire.ec.europa.eu/schemas/inspire_vs/1.0',
+      'xlink': 'http://www.w3.org/1999/xlink',
+      'xsi': 'http://www.w3.org/2001/XMLSchema-instance'
+    }
+
+    root = ET.fromstring(content)
+
+    maxwidth = root.find('Service/MaxWidth', xmlns)
+    self.maxwidth = int(maxwidth.text) if maxwidth is not None else 40960
+    maxheight = root.find('Service/MaxHeight', xmlns)
+    self.maxheight = int(maxheight.text) if maxheight is not None else 40960
+
+    formats = []
+    layer_dict = {}
+    for cap in root.findall('Capability', xmlns):
+      for format in cap.findall('Request/GetMap/Format', xmlns):
+        formats.append(format.text)
+      layers = []
+      for layer in cap.findall('Layer', xmlns):
+        layers.append(self.load_layer(layer, xmlns))
+    self.layers = layers
+    self.formats = formats
+    return True
+
+  def print_layer(self, layer, indent=0):
+    print(indent*' ' + "Title:", layer['title'])
+    if 'name' in layer:
+      print(indent*' ' + "Name:", layer['name'])
+    if 'abstract' in layer:
+      print(indent*' ' + "Abstract:", layer['abstract'])
+    print()
+    for sub_layer in layer['layer']:
+      self.print_layer(sub_layer, indent+2)
+
+  def print_capabilities(self):
+    print("Available layers on key '%s':" % self.key)
+    print()
+    for layer in self.layers:
+      self.print_layer(layer)
+
+    print("\nAvailable formats:")
+    for f in self.formats:
+      print('  ' + f.split('/', 1)[1])
+
+
+  def compute_image_parameters(self, lambx_km, lamby_km):
+    """From a northwest tile origin, compute the tile coordinates to get from WMS.
+    Return x and y image size + bounding box in the WMS reference system
+    """
+
+
+    txlist = []
+    tylist = []
+
+    #
+    # Compute the WMTS coordinates of the 4 corners of the Lidar zone.
+    #
+    # The loop is arranged so that the top left corner is first in the results
+    # and the bottom right corner last, in order to get tx1, tx1_orig & al at the end.
+    #
+
+    for x in [lambx_km*1000, (lambx_km+1)*1000]:
+      for y in [lamby_km*1000, (lamby_km-1)*1000]:
+        #
+        # Convert to WMS geographical coordinates
+        #
+        wmsx, wmsy = self.trans_target_to_wmsref.transform(x, y)
+        txlist.append(wmsx)
+        tylist.append(wmsy)
+
+    #
+    # Compute the bounding box of the WMS coordinates.
+    # This accounts for margins needed for projection with gdalwarp.
+    #
+    txlist.sort()
+    tylist.sort()
+    bottom_lat = txlist[0]
+    left_lon = tylist[0]
+    top_lat = txlist[-1]
+    right_lon = tylist[-1]
+
+    #
+    # Compute the bounds in target coordinates of the final image.
+    # Not used except for display, but shows the margins.
+    #
+    lambert_topleft_x, lambert_topleft_y = self.trans_target_from_wmsref.transform(top_lat, left_lon)
+    lambert_bottomright_x, lambert_bottomright_y = self.trans_target_from_wmsref.transform(bottom_lat, right_lon)
+
+    print("WMS bounding box: %.6f, %.6f, %.6f, %.6f" % (bottom_lat, left_lon, top_lat, right_lon))
+    print("Top left on OSM %s" % osm_marker(self.trans_wgs84_from_wmsref.transform(top_lat, left_lon)))
+    print("Bottom right on OSM %s" % osm_marker(self.trans_wgs84_from_wmsref.transform(bottom_lat, right_lon)))
+
+    return bottom_lat, left_lon, top_lat, right_lon, self.size_x, self.size_y
+
+
+  def fetch_image(self, bottomleft_lat, bottomleft_lon, topright_lat, topright_lon,
+                  lambx_km, lamby_km, size_x, size_y, filename):
+    """Fetch the given tile coordinate range then save to a file."""
+    print("Creating image size %dx%d" % (size_x, size_y))
+    if self.testmode:
+      self.ni += 1
+      return Image.new('RGB', (self.tile_size_x, self.tile_size_y), colors[self.ni % 8])
+
+    data = None
+
+    orig_name = os.path.join(config['cache_dir'], '%s-%04d-%04d.%s'
+      % (self.layer, lambx_km, lamby_km, self.format_ext))
+
+    #
+    # Try the cache first
+    #
+    if os.path.exists(orig_name):
+      with open(orig_name, 'rb') as o:
+        data = o.read()
+    else:
+      #
+      # Not found, fetch from the API and store
+      #
+      url = (self.config['endpoint_url'] % {'key': self.key}
+           + wms_GetMap_fmt % {
+              'layer': self.layer, 'size_x': size_x, 'size_y': size_y,
+              'bottomleft_lat': bottomleft_lat, 'bottomleft_lon': bottomleft_lon,
+              'topright_lat': topright_lat, 'topright_lon': topright_lon,
+              'crs': self.ortho_ref,
+              'format': self.format})
+      r = self.session.get(url, stream=True)
+      if r.status_code != 200:
+        print("HTTP error %d on tile %s %s %d, %d" % (r.status_code, self.config_identifier, self.layer, lambx_km, lamby_km))
+        print('URL:', url)
+      else:
+        with open(orig_name, 'wb+') as o:
+          for data in r.iter_content(1024*1024):
+            o.write(data)
+
+      # Give the API server some slack
+      time.sleep(.1)
+
+    return orig_name
+
+  def fetch_georeferenced_image(self, lambx_km, lamby_km):
+    (bottomleft_lat, bottomleft_lon, topright_lat, topright_lon,
+      size_x, size_y) = self.compute_image_parameters(lambx_km, lamby_km)
+
+    outprefix = "img-%04d-%04d" % (lambx_km, lamby_km)
+
+    ortho_ref = self.ortho_ref
+    ortho_ref_file = ortho_ref.replace(':', '_')
+    target_ref_file = self.target_ref.replace(':', '_')
+
+    image_ortho_georef = "%s.%s.geotiff" % (outprefix, ortho_ref_file)
+
+    #
+    # Fetch the initial image we are going to work on.
+    #
+    orig_name = self.fetch_image(bottomleft_lat, bottomleft_lon, topright_lat, topright_lon,
+      lambx_km, lamby_km, size_x, size_y, image_ortho_georef)
+
+    #
+    # If necessary, convert to a georeferenced TIFF
+    #
+    if not orig_name.endswith('.geotiff'):
+      georeference_image(self.main_config, orig_name, image_ortho_georef, ortho_ref,
+                         bottomleft_lat, topright_lat, bottomleft_lon, topright_lon)
+      orig_name = image_ortho_georef
+    return ortho_ref, orig_name
 
 
 class LazColorize(object):
@@ -440,16 +744,19 @@ class LazColorize(object):
     # Select by our config id
     self.config = config['layers'][self.config_identifier]
 
-    self.image_fetcher = WmtsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
+    if self.config['protocol'] == 'wmts':
+      self.image_fetcher = WmtsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
+    elif self.config['protocol'] == 'wms':
+      self.image_fetcher = WmsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
 
   def get_extent(self, lambx_km, lamby_km, infile):
     self.infile = infile
 
     outprefix = "img-%04d-%04d" % (lambx_km, lamby_km)
-    image_target_georef = "%s.%s.tiff" % (outprefix, self.target_ref.replace(':', '_'))
     ortho_ref, image_ortho_georef = self.image_fetcher.fetch_georeferenced_image(lambx_km, lamby_km)
 
     if ortho_ref != self.target_ref:
+      image_target_georef = "%s.%s.tiff" % (outprefix, self.target_ref.replace(':', '_'))
       #
       # The tiles obtained from the API were not in the target coordinates.
       # Project to a new georeferenced TIFF in the target coordinates.
@@ -459,9 +766,8 @@ class LazColorize(object):
         "-t_srs", self.target_ref,
         "-r", "bilinear",
         image_ortho_georef, image_target_georef])
-
-      if not self.main_config.get('keeptmpfiles', False):
-        os.unlink(image_ortho_georef)
+    else:
+      image_target_georef = image_ortho_georef
 
     #
     # Run PDAL for the final colorization step using the georeferenced image.
