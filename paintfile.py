@@ -45,6 +45,11 @@ wmts_GetTile_fmt = 'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=%(layer)s&S
 wmts_GetCapabilities_fmt = 'SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities'
 
 
+def osm_marker(p):
+  """Return pointer to map on OSM web site."""
+  return 'https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=16/%.5f/%.5f' % (p[0], p[1], p[0], p[1])
+
+
 class TileCoords(object):
   """Handle tile coordinate conversion."""
   def __init__(self, ortho_ref, target_ref, zoomconfig):
@@ -110,7 +115,7 @@ class TileCoords(object):
   def osm_marker(self, tile_x, tile_y):
     """Return pointer to map on OSM web site."""
     p = self.wmts_transform_from_tile(tile_x, tile_y, self.trans_wgs84_from_wmtsref)
-    return 'https://www.openstreetmap.org/?mlat=%.5f&mlon=%.5f#map=16/%.5f/%.5f' % (p[0], p[1], p[0], p[1])
+    return osm_marker(p)
 
 
 class LazColorize(object):
