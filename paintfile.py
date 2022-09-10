@@ -133,15 +133,18 @@ class LazColorize(object):
 
     # Select by our config id
     self.config = config['layers'][self.config_identifier]
+    self.wmts_init(self.config)
 
+
+  def wmts_init(self, config):
     # WMTS endpoint API key
-    self.key = self.config['key']
+    self.key = config['key']
 
     # Layer name to look for in WMTS
-    self.layer = self.config['layer']
+    self.layer = config['layer']
 
     # Zoom level to look for in WMTS
-    self.zoom = self.config['zoom']
+    self.zoom = config['zoom']
 
     if not self.wmts_load_capabilities():
       print("Unable to load capabilities")
@@ -349,8 +352,8 @@ class LazColorize(object):
     outprefix = "img-%s-%04d-%04d" % (self.zoom, lambx_km, lamby_km)
 
     image_wmts = outprefix + ".png"
-    image_wmts_georef = "%s.%s.tiff" % (outprefix, self.ortho_ref_file)
-    image_final = "%s.%s.tiff" % (outprefix, self.target_ref_file)
+    image_wmts_ortho_georef = "%s.%s.tiff" % (outprefix, self.ortho_ref_file)
+    image_wmts_target_georef = "%s.%s.tiff" % (outprefix, self.target_ref_file)
 
     #
     # Fetch the initial image we are going to work on.
@@ -372,7 +375,7 @@ class LazColorize(object):
       "-a_srs", self.ortho_ref,
       "-a_ullr", "%f" % tx1_orig, "%f" % ty1_orig, "%f" % tx2_orig, "%f" % ty2_orig,
       image_wmts,
-      "%s.%s.tiff" % (outprefix, self.ortho_ref_file)])
+      image_wmts_ortho_georef])
 
     if not self.main_config.get('keeptmpfiles', False):
       os.unlink(image_wmts)
@@ -386,10 +389,10 @@ class LazColorize(object):
         self.main_config['gdalwarp_path'],
         "-t_srs", self.target_ref,
         "-r", "bilinear",
-        image_wmts_georef, image_final])
+        image_wmts_ortho_georef, image_wmts_target_georef])
 
       if not self.main_config.get('keeptmpfiles', False):
-        os.unlink(image_wmts_georef)
+        os.unlink(image_wmts_ortho_georef)
 
     #
     # Run PDAL for the final colorization step using the georeferenced image.
@@ -403,7 +406,7 @@ class LazColorize(object):
         self.infile,
         {
             "type": "filters.colorization",
-            "raster": image_final
+            "raster": image_wmts_target_georef
         },
         {
             "type": "writers.las",
@@ -424,7 +427,7 @@ class LazColorize(object):
     os.rename('color_%04d_%04d_LA93.laz.tmp' % (lambx_km, lamby_km), 'color_%04d_%04d_LA93.laz' % (lambx_km, lamby_km))
 
     if not self.main_config.get('keeptmpfiles', False):
-      os.unlink(image_final)
+      os.unlink(image_wmts_target_georef)
 
   def wmtfs_fetch_tile(self, tile_x, tile_y):
     """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
