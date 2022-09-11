@@ -100,7 +100,7 @@ class TileCoords(object):
 
 class WebMercatorTileCoords(TileCoords):
   """WMTS tile coordinate conversion."""
-  def __init__(self, ortho_ref, target_ref, zoomconfig):
+  def __init__(self, ortho_ref, target_ref, zoomconfig, tile_mxy=None):
     self.ortho_ref = ortho_ref
     self.target_ref = target_ref
     self.trans_target_to_tileref = Transformer.from_crs(self.target_ref, self.ortho_ref)
@@ -111,13 +111,18 @@ class WebMercatorTileCoords(TileCoords):
     self.y0 = zoomconfig['y0']
     scale_denominator = zoomconfig['scale_denominator']
 
-    # 0.28 millimeter per pixel = hardcoded value from the WMTS standard
-    self.mpp = 0.00028*scale_denominator
-
     self.tile_size_x = zoomconfig['tile_size_x']
     self.tile_size_y = zoomconfig['tile_size_y']
-    self.tile_mx = self.tile_size_x*self.mpp
-    self.tile_my = self.tile_size_y*self.mpp
+
+    if tile_mxy is None:
+      # 0.28 millimeter per pixel = hardcoded value from the WMTS standard
+      self.mpp = 0.00028*scale_denominator
+      self.tile_mx = self.tile_size_x*self.mpp
+      self.tile_my = self.tile_size_y*self.mpp
+    else:
+      self.tile_mx = tile_mxy
+      self.tile_my = tile_mxy
+      self.mpp = self.tile_mx/self.tile_size_x
 
   def transform_to_tile(self, lat, lon, transformer):
     """Transform latitude, longitude to x, y tile number at the current zoom level."""
@@ -430,7 +435,150 @@ class WmtsHandler(TileHandler):
     return i
 
 
+# From https://wiki.openstreetmap.org/wiki/TMS
+# https://wiki.osgeo.org/wiki/Tile_Map_Service_Specification#Implementation_Advice
+#
+# Slippy map (OSM)
+# https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Python
 
+class TmsHandler(TileHandler):
+  def __init__(self, main_config, config, config_identifier, target_ref):
+    self.config = config
+    self.main_config = main_config
+    self.config_identifier = config_identifier
+    self.target_ref = target_ref
+
+    # Zoom level
+    self.zoom = config['zoom']
+
+    self.session = requests.Session()
+    self.layer = config_identifier
+
+    # Configure by default for pseudo-Mercator based on WGS84
+    self.ortho_ref = self.config.get('crs', 'EPSG:3857')
+
+    # EPSG:3857 is the WebMercator projection based on WGS84.
+    #
+    # Then the zoomconfig configuration below allows conversion
+    # to x, y tile coordinates.
+    #
+    # This yields the same results as the following formulas
+    # from https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
+    # for TMS tile coordinate calculation.
+    #
+    # def deg2num(self, lat_deg, lon_deg, zoom):
+    #   lat_rad = math.radians(lat_deg)
+    #   n = 2.0 ** zoom
+    #   xtile = (lon_deg + 180.0) / 360.0 * n
+    #   ytile = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
+    #   return (xtile, ytile)
+    # def num2deg(self, xtile, ytile, zoom):
+    #   n = 2.0 ** zoom
+    #   lon_deg = xtile / n * 360.0 - 180.0
+    #   lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * ytile / n)))
+    #   lat_deg = math.degrees(lat_rad)
+    #   return (lon_deg, lat_deg)
+
+    zoomconfig = {
+      'x0': -6378137*math.pi,
+      'y0': 6378137*math.pi,
+      'scale_denominator': 1,
+      'tile_size_x': 256,
+      'tile_size_y': 256
+    }
+
+    #
+    # Force value for meters per tile for correct coordinate calculation.
+    #
+    tile_mxy = 6378137*math.pi*2/2**self.zoom
+
+    self.TC = WebMercatorTileCoords(self.ortho_ref, target_ref, zoomconfig, tile_mxy)
+
+    self.ni = 0
+    self.testmode = False
+
+    mpp, self.tile_size_x, self.tile_size_y = self.TC.get_params()
+
+    print("\nConfigured for layer '%s'" % (self.layer,))
+    print("Zoom level %s, %.6f meters per pixel, %.2f pixels per kilometer, %dx%d pixels per tile"
+      % (self.zoom, mpp, 1000/mpp, self.tile_size_x, self.tile_size_y))
+
+    self.switch_n = 0
+    self.switch = ['']
+
+    #
+    # Parse and convert the URL template.
+    #
+    tms_re = re.compile('\{([!-]?[a-z0-9]+)(?:\:([a-z0-9,]+))?\}')
+    url_template = self.config['endpoint_url']
+    while True:
+      m = tms_re.search(url_template)
+      if not m:
+        break
+      beg, end = m.span()
+      label, arg = m.groups()
+      url_template = url_template[:beg] + '%(' + label + ')s' + url_template[end:]
+      if label == 'switch':
+        self.switch = arg.split(',')
+    self.url = url_template
+
+  def fetch_tile(self, tile_x, tile_y):
+    """Load a tile at current zoom level and coordinates tile_x, tile_y from the cache or API."""
+    if self.testmode:
+      self.ni += 1
+      return Image.new('RGB', (self.tile_size_x, self.tile_size_y), colors[self.ni % 8])
+
+    data = None
+
+    orig_name = os.path.join(config['cache_dir'], '%s-%s-%d-%d.unk'
+      % (self.layer, self.zoom, tile_x, tile_y))
+
+    #
+    # Try the cache first
+    #
+    if os.path.exists(orig_name):
+      with open(orig_name, 'rb') as o:
+        data = o.read()
+    else:
+
+      #
+      # Not found, fetch from the API and store
+      #
+
+      # Respect OSM tile server terms of use for software identification
+      headers = {'User-Agent': 'Lidarpaint'}
+
+      # Accepted variables based on the JOSM syntax, see https://josm.openstreetmap.de/wiki/Maps
+      url = (self.url
+        % {'x': int(tile_x),
+           'y': int(tile_y),
+           # Yahoo-style Y coordinate
+           '!y': int(2**(self.zoom-1)-1-tile_y),
+           # OSGeo TMS specification style
+           '-y': int(2**self.zoom-1-tile_y),
+           'zoom': self.zoom,
+           'z': self.zoom,
+           'apikey': self.config.get('apikey', 'apikey_not_set'),
+           'switch': self.switch[self.switch_n]})
+      self.switch_n = (self.switch_n + 1) % len(self.switch)
+      r = self.session.get(url, headers=headers)
+      if r.status_code == 200:
+        data = r.content
+        with open(orig_name, 'wb+') as o:
+          o.write(data)
+      else:
+        print("HTTP error %d on tile %s %s %d, %d" % (r.status_code, self.config_identifier, self.layer, tile_x, tile_y))
+        print('URL:', url)
+
+      # Give the API server some slack
+      time.sleep(.1)
+
+    if data is not None:
+      i = Image.open(io.BytesIO(data))
+    else:
+      # Tile not found: replace with a red image
+      i = Image.new('RGB', (self.tile_size_x, self.tile_size_y), (250,0,0))
+    return i
 
 #
 # Based on "OpenGIS® Web Map Server Implementation Specification Version: 1.3.0"
@@ -748,6 +896,8 @@ class LazColorize(object):
       self.image_fetcher = WmtsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
     elif self.config['protocol'] == 'wms':
       self.image_fetcher = WmsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
+    elif self.config['protocol'] == 'tms':
+      self.image_fetcher = TmsHandler(self.main_config, self.config, self.config_identifier, self.target_ref)
 
   def get_extent(self, lambx_km, lamby_km, infile):
     self.infile = infile
