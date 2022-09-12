@@ -3,7 +3,7 @@ LiDarPaint
 
 ### Qu'est ce que c'est ?
 
-Ces scripts colorisent automatiquement des dalles Lidar HD IGN quelconques à partir des données d'orthophotographie distribuées également par l'IGN.
+Ces scripts colorisent automatiquement des dalles Lidar HD IGN quelconques à partir des données d'orthophotographie distribuées également par l'IGN, ou par d'autres services.
 
 Le script principal `painturl` récupère les fichiers IGN `.laz` directement à partir de leur URL et s'occupe de tous les traitements, produisant des fichiers color*.laz directement chargeables dans le logiciel displaz.
 
@@ -50,6 +50,75 @@ une dalle .laz déjà colorisée en la redonnant à `paintfile`. Cela
 permet de tester un changement de couche orthophotographique :
 
 `./paintfile.py color_0750_6431_LA93.laz`
+
+### Configuration avancée
+
+Le code sait gérer 3 protocoles correspondant à 3 types de serveurs de cartographie.
+
+Par ordre chronologique de création de ces protocoles :
+
+* TMS (Tile Map Service), le protocole d'origine OpenStreetMap ;
+* WMTS (Web Map Tile Service), normalisé par l'OpenGIS Consortium et inspiré de TMS ;
+* WMS (Web Map Service), une modernisation/généralisation de WMTS.
+
+Le protocole le plus rapide et efficace est WMS, car il permet de récupérer des images de grande taille et éventuellement déjà géoréférencées. C'est lui qui est utilisé dans la configuration par défaut.
+
+Le fichier de configuration permet de distinguer ces protocoles à l'aide du champ `protocol`.
+
+Dans le cas de WMS et WMTS, le serveur fournit la liste des couches et formats disponibles. `paintfile.py` affiche cette liste avant de procéder à la récupération des images.
+
+#### Configuration WMS
+
+Exemple d'entrée pour utiliser le service WMS IGN avec la couche haute résolution :
+```
+        "IGN-HR": {
+            "protocol": "wms",
+            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS"
+            "crs": "EPSG:4326",
+            "key": "ortho",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/r/wms?",
+        },
+```
+
+Le champ `crs` indique la projection dans laquelle `paintfile.py` va spécifier les coordonnées au serveur. Cette projection doit être connue par ce dernier.
+
+#### Configuration WMTS
+
+Exemple d'entrée pour configurer le service WMTS IGN avec la couche haute résolution, pour des photos en projection Lambert93.
+Ce n'est pas la clé d'accès `key` qui spécifie ici la projection, mais les paramètres de la couche sur le serveur, récupérés dynamiquement par `paintfile.py`.
+
+Avec le protocole WMTS, il est nécessaire de spécifier le niveau de zoom désiré. Le niveau 18 ou 19 est généralement suffisant par rapport à la résolution des dalles Lidar IGN.
+
+```
+        "LAMB93": {
+            "protocol": "wmts",
+            "zoom": "18",
+            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS.L93",
+            "key": "lambert93",
+            "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/wmts?"
+        },
+```
+
+
+#### Configuration TMS
+
+Ce protocole est surtout intéressant pour les contributeurs OpenStreetMap.
+
+`paintfile.py` permet d'utiliser les mêmes cartes et avec la même syntaxe d'URL que celles fournies par les logiciels permettant la contribution.
+
+Attention : ces cartes sont souvent soumises à des conditions d'utilisation qui en limitent l'usage à la contribution OpenStreetMap. Les utilisateurs sont donc invités à vérifier que l'usage qu'ils souhaitent faire des dalles Lidar ainsi colorisées est conforme aux conditions.
+
+C'est la raison pour laquelle, dans le doute, aucune carte TMS préconfigurée n'est fournie dans le fichier d'exemple.
+
+Les dalles Lidar peuvent avoir un grand intérêt en contribution cartographique, notamment afin de qualifier des éléments difficiles à distinguer sur la cartographie aérienne 2D : ponts, passerelles, passages souterrains ou supérieurs, etc.
+
+```
+        "OSM-OSM": {
+            "protocol": "tms",
+            "zoom": 18,
+            "endpoint_url" : "https://tile.openstreetmap.org/{zoom}/{x}/{y}.png"
+        },
+```
 
 Code en licence BSD.
 
