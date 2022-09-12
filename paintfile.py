@@ -247,7 +247,7 @@ class TileHandler(object):
     target_ref_file = self.target_ref.replace(':', '_')
 
     image = outprefix + ".png"
-    image_ortho_georef = "%s.%s.tiff" % (outprefix, ortho_ref_file)
+    image_ortho_georef = "%s.%s.geotiff" % (outprefix, ortho_ref_file)
 
     #
     # Fetch the initial image we are going to work on.
@@ -906,7 +906,7 @@ class LazColorize(object):
     ortho_ref, image_ortho_georef = self.image_fetcher.fetch_georeferenced_image(lambx_km, lamby_km)
 
     if ortho_ref != self.target_ref:
-      image_target_georef = "%s.%s.tiff" % (outprefix, self.target_ref.replace(':', '_'))
+      image_target_georef = "%s.%s.geotiff" % (outprefix, self.target_ref.replace(':', '_'))
       #
       # The tiles obtained from the API were not in the target coordinates.
       # Project to a new georeferenced TIFF in the target coordinates.
@@ -915,6 +915,8 @@ class LazColorize(object):
         self.main_config['gdalwarp_path'],
         "-t_srs", self.target_ref,
         "-r", "bilinear",
+        "-if", "GTiff",
+        "-of", "GTiff",
         image_ortho_georef, image_target_georef])
     else:
       image_target_georef = image_ortho_georef
