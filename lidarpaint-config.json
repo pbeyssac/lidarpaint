@@ -12,8 +12,6 @@
             "crs": "EPSG:4326",
             "key": "ortho",
             "endpoint_url": "https://wxs.ign.fr/%(key)s/geoportail/r/wms?"
-            "crs": "EPSG:4326",
-            "layer": "HR.ORTHOIMAGERY.ORTHOPHOTOS"
         },
         "IGN-THR": {
             "comment": "Pas disponible sur tout le territoire français",
