@@ -9,8 +9,16 @@ Le script principal `painturl` récupère les fichiers IGN `.laz` directement à
 
 L'autre script `paintfile.py` travaille avec des fichiers .laz IGN déjà téléchargés et extraits qu'on lui fournit.
 
-Les URL des fichiers .laz sont à trouver sur :
+Cela permet d'avoir dans `displaz` des visualisations de ce type, comme ici le viaduc de Garabit :
+
+![Viaduc de Garabit dans displaz](assets/garabit.png)
+
+Les URL des fichiers .laz sont à trouver sur cette page de l'IGN :
 https://geoservices.ign.fr/lidarhd#telechargement
+
+Ou directement :
+* Pour les fichiers classifiés .laz : https://pcrs-dev.ign.fr/version_lidarhd_classe
+* Pour les fichiers bruts .zip contenant des .laz : https://pcrs.ign.fr/version3
 
 ### Comment ça marche
 
@@ -42,6 +50,11 @@ Pour découvrir Monistrol d'Allier en 3D :
 
 `./painturl 'https://wxs.ign.fr/c90xknypoz1flvgojchbphgt/telechargement/prepackage/LIDARHD_PACK_MN_2021$LIDARHD_1-0_LAZ_MN-0750_6431-2021/file/LIDARHD_1-0_LAZ_MN-0750_6431-2021.7z'`
 `displaz *.laz`
+
+Pour voir la gare de Saint-Chély d'Apcher :
+
+`wget https://storage.sbg.cloud.ovh.net/v1/AUTH_63234f509d6048bca3c9fd7928720ca1/ppk-lidar/LN/LHD_C_LA93-IGN69_0721-6412_2022.copc.laz`
+`./paintfile.py LHD_C_LA93-IGN69_0721-6412_2022.copc.laz`
 
 Le programme supprime après usage les fichiers volumineux qui ne sont plus nécessaires.
 
@@ -122,8 +135,9 @@ Les dalles Lidar peuvent avoir un grand intérêt en contribution cartographique
 
 Code en licence BSD.
 
-Pierre Beyssac -- 2022
+Pierre Beyssac -- 2022-2023
 Twitter: @pbeyssac
+Mastodon: @pb@mast.eu.org
 
 Les scripts ont été écrits pour Unix mais pourraient fonctionner sur d'autres systèmes, "sur un malentendu".
 

@@ -29,6 +29,7 @@ lidar_resolution_m = .2
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
 #
 re_ign_file = re.compile('.*_(\d\d\d\d)_(\d\d\d\d)_L[AB]93')
+re_ign2_file = re.compile('.*_(\d\d\d\d)-(\d\d\d\d)_')
 
 #
 # Random colors for test tiles
@@ -963,7 +964,7 @@ with open('lidarpaint-config.json', 'r') as cf:
 c = LazColorize(config)
 
 for arg in sys.argv[1:]:
-  m = re_ign_file.match(arg)
+  m = re_ign_file.match(arg) or re_ign2_file.match(arg)
   if m:
     lambx_km, lamby_km = m.groups()
     print("Processing Lidar tile with Lambert93 kilometer coordinates", lambx_km, lamby_km)
