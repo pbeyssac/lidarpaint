@@ -28,7 +28,7 @@ lidar_resolution_m = .2
 #
 # Pattern to extract Lambert93 kilometer coordinates from IGN Lidar file name
 #
-re_ign_file = re.compile('.*_(\d\d\d\d)_(\d\d\d\d)_L[AB]93')
+re_ign_file = re.compile('.*_(\d\d\d\d)_(\d\d\d\d)_.*L(?:A|B|AMB)93')
 re_ign2_file = re.compile('.*_(\d\d\d\d)-(\d\d\d\d)_')
 
 #
